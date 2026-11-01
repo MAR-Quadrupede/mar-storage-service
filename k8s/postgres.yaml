@@ -1,0 +1,103 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mar-postgres
+  namespace: mar-system
+  labels:
+    app: mar-postgres
+    service: storage
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: mar-postgres
+  template:
+    metadata:
+      labels:
+        app: mar-postgres
+        service: storage
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: POSTGRES_USER
+              value: "mar_user"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mar-storage-secrets
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              value: "mar_db"
+            - name: PGDATA
+              value: "/var/lib/postgresql/data/pgdata"
+          ports:
+            - name: postgres
+              containerPort: 5432
+          livenessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - mar_user
+                - -d
+                - mar_db
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - mar_user
+                - -d
+                - mar_db
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 384Mi
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+            - name: config-volume
+              mountPath: /docker-entrypoint-initdb.d/01-init-databases.sh
+              subPath: 01-init-databases.sh
+            - name: config-volume
+              mountPath: /docker-entrypoint-initdb.d/02-populate-mar-db.sql
+              subPath: 02-populate-mar-db.sql
+      volumes:
+        - name: postgres-data
+          hostPath:
+            path: /var/lib/mar-data/postgres
+            type: DirectoryOrCreate
+        - name: config-volume
+          configMap:
+            name: mar-storage-config
+            defaultMode: 0755
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mar-postgres
+  namespace: mar-system
+  labels:
+    app: mar-postgres
+spec:
+  type: ClusterIP
+  selector:
+    app: mar-postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432

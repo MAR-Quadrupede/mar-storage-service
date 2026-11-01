@@ -1,0 +1,46 @@
+name: Deploy mar-storage-service to K3s Cluster
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy Storage Stack to Raspberry Pi K3s
+    runs-on: [self-hosted, linux, arm64]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Prepare persistent host paths
+        run: |
+          echo "Verifying host data directories..."
+          sudo mkdir -p /var/lib/mar-data/postgres /var/lib/mar-data/redis /var/lib/mar-data/minio/mar-storage
+          sudo chmod -R 777 /var/lib/mar-data
+
+      - name: Apply Kubernetes manifests
+        run: |
+          echo "Applying storage stack manifests..."
+          kubectl apply -k k8s/
+
+      - name: Wait for PostgreSQL rollout
+        run: |
+          kubectl rollout status deployment/mar-postgres -n mar-system --timeout=120s
+
+      - name: Wait for Redis rollout
+        run: |
+          kubectl rollout status deployment/mar-redis -n mar-system --timeout=60s
+
+      - name: Wait for MinIO S3 rollout
+        run: |
+          kubectl rollout status deployment/mar-s3 -n mar-system --timeout=90s
+
+      - name: Verify storage stack readiness
+        run: |
+          kubectl get pods -n mar-system -l service=storage -o wide
+          kubectl get svc -n mar-system -l app=mar-postgres
+          kubectl get svc -n mar-system -l app=mar-redis
+          kubectl get svc -n mar-system -l app=mar-s3
